@@ -1,9 +1,6 @@
 LDA_behavior_gibbs=function(dat,gamma1,alpha,ngibbs,nmaxclust,nburn,ndata.types){
   ntsegm=nrow(dat)
   
-  #prior
-  gamma1=0.1
-  alpha=0.1
   
   #separate variables
   y=list()

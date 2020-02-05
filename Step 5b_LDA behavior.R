@@ -39,6 +39,10 @@ nburn=ngibbs/2
 nmaxclust=max(nbins) - 1  #one fewer than max number of bins used for params
 ndata.types=length(nbins)
 
+#prior
+gamma1=0.1
+alpha=0.1 
+
 #####################################################
 #### Run Gibbs Sampler on All IDs Simultaneously ####
 #####################################################
