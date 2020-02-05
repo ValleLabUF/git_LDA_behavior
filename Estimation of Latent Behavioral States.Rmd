@@ -1,0 +1,239 @@
+---
+title: "Estimation of Latent Behavioral States"
+author: "Josh Cullen"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  pdf_document: 
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+# Behavior Estimation
+
+Movement parameters (SL/TA) have already been used to delineate time segments of different behavioral patterns. This document displays the output of the subsequent stage: the clustering of behavioral time segments into behavioral states. Compared to many existing methods, this model does not make *a priori* assumptions on the number of behavioral states or the transition rates between selected behaviors, only requiring the user to set the maximum number of possible behaviors. However, this model requires the user to have some prior knowledge of their study organism in order to identify or assign behaviors from summary histograms for each behavioral state.
+
+Each time segment per individual is attributed a probability of a given behavior occurring for each of the possibilities, usually with only a select few behaviors being represented. These patterns in behavior can be evaluated over time within and across individuals and can ultimately be compared against other covariates to evaluate drivers of these behaviors and possible consequences.
+
+
+## Identifying behaviors
+
+As stated above, time segments were clustered by similar features of their multinomial (SL,TA) distributions. An upper limit of 7 possible behaviors was set when running the model over 1000 iterations. *It is advised that the number of maximum possible behaviors $K_{max}$ is set at no more than the greatest number of bins used for the included movement parameters. If ancillary data are used in the behavior classification model, this can be increased.* Assuming the Gibbs sampler converged after the burn-in period (500 iterations) as determined by an asymptote of the log marginal likelihood, the remaining 500 samples were purported to come from the posterior distribution. The mean of the posterior distribution for $\theta$ (the probability of being assigned to each behavioral state per time segment) was calculated and used to evaluate temporal patterns of behavior estimates.
+
+To get a sense of the behaviors identified, plots of the movement parameter distributions (SL,TA) are shown for each of the seven possible behaviors.
+\hfill\break
+
+```{r load}
+library('MCMCpack')
+library('Rcpp')
+library(progress)
+library(tidyverse)
+library(lubridate)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+
+
+source('LDA_behavior_function.R')
+source('gibbs sampler.R')
+source('helper functions.R')
+sourceCpp('aux1.cpp')
+
+
+
+
+############################
+#### Load and Prep Data ####
+############################
+
+#get data
+dat<- read.csv('Snail Kite Gridded Data_larger_behav.csv', header = T, sep = ',')
+dat$date<- dat$date %>% as_datetime()
+dat.list<- df.to.list(dat)
+obs<- get.summary.stats_behav(dat)
+
+
+#prepare for Gibbs sampler
+ngibbs=1000
+nburn=ngibbs/2
+ind1=grep('y1',colnames(obs))
+ind2=grep('y2',colnames(obs))
+nmaxclust=max(length(ind1),length(ind2))-1  #max possible is 1 fewer than largest number of bins
+
+
+```
+
+
+```{r gibb sampler, fig.width=4.5, fig.height=3, fig.align='center'}
+set.seed(2)
+
+#####################################################
+#### Run Gibbs Sampler on All IDs Simultaneously ####
+#####################################################
+
+res=LDA_behavior_gibbs(dat=obs,gamma1=gamma1,alpha=alpha,
+                       ngibbs=ngibbs,nmaxclust=nmaxclust,
+                       nburn=nburn)
+
+#Check traceplot of log marginal likelihood
+plot(res$loglikel,type='l', xlab = "Observations", ylab = "Log Marginal Likelihood")
+
+#Extract and plots proportions of behaviors per time segment
+theta.post<- res$theta[(nburn+1):ngibbs,]  
+theta.estim<- theta.post %>% apply(2, mean) %>% matrix(nrow(obs), nmaxclust) #calc mean of posterior
+boxplot(theta.estim, xlab = "Behavior", ylab = "Probability of Occurrence")
+```
+\hfill\break
+
+```{r}
+#Determine proportion of behaviors (across all time segments)
+#Possibly set threshold below which behaviors are excluded
+round(apply(theta.estim, 2, sum)/nrow(theta.estim), digits = 3)
+
+```
+\hfill\break
+
+From this output, it appears that the mixed membership LDA model has converged and that there are likely only three behaviors present as determined from the boxplot and the printed averages for the probability of occurrence for each behavior. The following plots display the distributions for each of these behaviors.
+\hfill\break
+\hfill\break
+
+
+```{r thetas}
+#################################################################
+#### Visualize Histograms of Movement Parameters by Behavior ####
+#################################################################
+
+behav.res<- get_behav_hist(res)
+
+#Plot histograms of proportion data
+ggplot(behav.res, aes(x = bin, y = prop, fill = behav)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_viridis_c(guide = F, direction = -1) +
+  labs(x = "\nBin", y = "Proportion\n") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
+  facet_grid(param ~ behav, scales = "fixed")
+
+```
+\pagebreak
+
+For the first three behaviors, which comprise 95.6% of all behavior assignments, they appear to represent a 'transiting', 'resting', and 'exploratory' behavior, respectively. The only major difference between the exploratory and resting behaviors was the longer tail for the distribution of the SL parameter in the exploratory behavior. The transit behavior substantially differed from both exploratory and resting behaviors in both SL and TA parameters, for which step lengths primarily fell within the last bin (~50%) and turning angles were close to 0 degrees/radians in bins four and five (~50%).
+\hfill\break
+
+## Time series of behavior
+
+Now that the behaviors have been roughly defined, I will now show how this looks over time across all individuals. This will provide a better sense of the transitions between behaviors and how long each ID spends in certain behaviors. These plots will be aligned by first observation as well as by date to give a sense of movement patterns as snail kites get older and how this relates to peak breeding season (March 1 to June 30; grey shaded region).
+\hfill\break
+\hfill\break
+
+```{r}
+################################################
+#### Visualize Behavior Estimates Over Time ####
+################################################
+
+#Assign behaviors (via theta) to each time segment
+theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
+names(theta.estim)<- c("id", "tseg", 1:nmaxclust)  #define behaviors
+nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,11:16], 1, sum)) #calc obs per tseg
+
+#Create augmented matrix by replicating rows (tsegs) according to obs per tseg
+theta.estim2<- aug_behav_df(dat = dat, theta.estim = theta.estim, nobs = nobs)
+
+#Change into long format
+theta.estim.long<- theta.estim2 %>% gather(key, value, -id, -tseg, -time1, -date)
+theta.estim.long$date<- theta.estim.long$date %>% as_datetime()
+names(theta.estim.long)[5:6]<- c("behavior","prop")
+
+
+### Aligned by first observation
+
+#stacked area
+ggplot(theta.estim.long %>% filter(id == 1 | id == 12 | id == 19 | id == 27)) +
+  geom_area(aes(x=time1, y=prop, fill = behavior), color = "black", size = 0.25,
+            position = "fill") +
+  labs(x = "\nObservation", y = "State Probability\n") +
+  scale_fill_viridis_d("Behavior", direction = -1) +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id, scales = "free_x")
+```
+
+```{r}
+### Aligned by date
+
+
+#Window of peak breeding (March 1 - June 30)
+breed<- data.frame(xmin = as_datetime(c("2016-03-01 00:00:00","2017-03-01 00:00:00",
+                                        "2018-03-01 00:00:00","2019-03-01 00:00:00")),
+                   xmax = as_datetime(c("2016-06-30 23:59:59","2017-06-30 23:59:59",
+                                        "2018-06-30 23:59:59","2019-06-30 23:59:59")),
+                   ymin = -Inf, ymax = Inf)
+
+
+#stacked area
+ggplot(theta.estim.long %>% filter(id == 1 | id == 12 | id == 19 | id == 27)) +
+  geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
+            position = "fill") +
+  geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            fill = "grey", alpha = 0.25) +
+  labs(x = "\nTime", y = "State Probability\n") +
+  scale_fill_viridis_d("Behavior", direction = -1) +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+
+```
+\pagebreak
+
+
+
+
+## Maps of behavioral assignments
+
+Now that the probabilities of each behavioral state occurring per time segment have been estimated for all IDs, the dominant behaviors will be plotted in geographic space to visualize how well these classifications match up with perceived movement patterns. Additionally, the level of transparency reflects the probability that a given behavior occurs during the time segment to which it was estimated.
+\hfill\break
+
+
+```{r, fig.align='center', fig.height=8, fig.width=6}
+#Add cluster assignments to original data; one column for dominant behavior and another for prop/prob to use for alpha of points
+dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
+
+
+#load map data
+usa <- ne_states(country = "United States of America", returnclass = "sf")
+fl<- usa %>% filter(name == "Florida")
+fl<- st_transform(fl, crs = "+init=epsg:32617") #change projection to UTM 17N
+
+samp<- dat2[dat2$id == 1 | dat2$id == 12 | dat2$id == 19 | dat2$id == 27,]
+  
+# Facet plot of maps
+ggplot() +
+  geom_sf(data = fl) +
+  coord_sf(xlim = c(min(dat$x-120000), max(dat$x+40000)),
+           ylim = c(min(dat$y-20000), max(dat$y+20000)), expand = FALSE) +
+  geom_path(data = samp, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = samp, aes(x, y, fill=behav), size=2.5, pch=21, alpha=samp$prop) +
+  scale_fill_viridis_d("Behavior", direction = -1) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  guides(fill = guide_legend(label.theme = element_text(size = 12),
+                             title.theme = element_text(size = 14))) +
+  facet_wrap(~id)
+```
+
+
+
