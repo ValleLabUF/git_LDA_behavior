@@ -171,6 +171,23 @@ ggplot(theta.estim.long) +
 
 
 
+#bar plot (includes gaps in time)
+ggplot(theta.estim.long %>% filter(id=="SNIK 12")) +
+  geom_bar(aes(x=date, y=prop, fill = behavior), size = 0.25, stat = "identity",
+           position = "stack", width = 3600) +
+  geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            fill = "grey", alpha = 0.25) +
+  labs(x = "\nTime", y = "Proportion of Behavior\n") +
+  scale_fill_viridis_d("Behavior") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+
+
 
 ########################################
 #### Map Dominant Behavioral States ####
