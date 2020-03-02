@@ -1,0 +1,224 @@
+---
+title: "Estimation of Latent Behavioral States (UPDATED)"
+author: "Josh Cullen"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  pdf_document: 
+    fig_caption: yes
+    latex_engine: xelatex
+header-includes:
+  - \usepackage{float}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+# Background
+
+Per the recent updates with the analysis of the snow leopard data, I also re-analyzed the snail kite data using the same number of bins and their limits for step lengths. This resulted in a change from creating 6 bins where the first 5 were of equal width up to the 90th quantile (1.63 km) and the last been was capped by the maximum step length (72 km) to the use of 5 bins with interior limits at the 25th, 50th, 75th, and 90th quantiles; the upper and lowers ends were still bounded by 0 and 72 km. Below, I will show results from the LDA model after first having segmented the time series for each individual.
+
+# Results
+
+To provide a general summary of the results, I will show plots of the histograms for each behavior, a time series of the behavior proportions, and mapped behaviors in geographic space. I will also try to include results from the previous analysis (w/ 6 SL bins) for direct comparison.
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(1)
+
+library('MCMCpack')
+library('Rcpp')
+library(progress)
+library(tidyverse)
+library(lubridate)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(viridis)
+library(knitr)
+
+
+source('LDA_behavior_function.R')
+source('gibbs sampler.R')
+source('helper functions.R')
+sourceCpp('aux1.cpp')
+```
+
+```{r}
+############################
+#### Load and Prep Data ####
+############################
+
+#get data
+dat<- read.csv('Snail Kite Gridded Data_TOHO_behav2.csv', header = T, sep = ',')
+dat$date<- dat$date %>% as_datetime()
+dat.list<- df.to.list(dat)  #for later behavioral assignment
+
+nbins<- c(5,8)  #number of bins per param (in order)
+dat_red<- dat %>% dplyr::select(c(id, tseg, SL, TA))  #only keep necessary cols
+obs<- get.summary.stats_behav(dat = dat_red, nbins = nbins)  #to run Gibbs sampler on
+
+
+#prepare for Gibbs sampler
+ngibbs=1000
+nburn=ngibbs/2
+nmaxclust=max(nbins) - 1  #one fewer than max number of bins used for params
+ndata.types=length(nbins)
+
+#prior
+gamma1=0.1
+alpha=0.1 
+```
+
+```{r}
+#####################################################
+#### Run Gibbs Sampler on All IDs Simultaneously ####
+#####################################################
+
+res=LDA_behavior_gibbs(dat=obs, gamma1=gamma1, alpha=alpha,
+                       ngibbs=ngibbs, nmaxclust=nmaxclust,
+                       nburn=nburn, ndata.types=ndata.types)
+
+#Extract and plot proportions of behaviors per time segment
+theta.post<- res$theta[(nburn+1):ngibbs,]  #extract samples from posterior
+theta.estim<- theta.post %>% apply(2, mean) %>% matrix(nrow(obs), nmaxclust) #calc mean of posterior
+```
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="This boxplot shows that there still appears to be three behaviors present in snail kites."}
+boxplot(theta.estim, xlab="Behavior", ylab="Proportion of Total Behavior")
+
+```
+
+The proportion of behavioral assignments explained by the first three behaviors has slightly increased in this analysis (94.1%) compared to when analyzed previously (93.6%). Since the number of likely behaviors is consistent with the prior results, I will now explore the SL and TA histograms for each of these three behaviors.
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="There still appear to be Encamped, Exploratory, and Transit behaviors, although they are defined by slightly different distributions of step lengths."}
+#################################################################
+#### Visualize Histograms of Movement Parameters by Behavior ####
+#################################################################
+
+behav.res<- get_behav_hist(res = res, dat_red = dat_red)
+behav.res<- behav.res[behav.res$behav <=3,]  #only select the top 3 behaviors
+
+#Plot histograms of proportion data; order color scale from slow to fast
+ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
+  geom_bar(stat = 'identity') +
+  labs(x = "\nBin", y = "Proportion\n") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
+  scale_fill_manual(values = viridis(n=3), guide = F) +
+  facet_grid(param ~ behav, scales = "fixed")
+```
+
+It appears that the distributions of turning angles are essentially unchanged for each behavior, which is reassuring since we did not modify the discretization of TA. However, the distributions of step lengths noticeably changed for the "Encamped" and "Exploratory" behaviors. The SL distribution for the "Exploratory" behavior (behavior 1) is less right skewed as it has equal proportions of observations in bins 1 and 2 and nearly as many in bin 3. This entails that there are some occasional longer steps included within this behavior. For the "Exploratory" SL distribution, there appears to be more of a pronounced peak of observations in bin 4 with the next most falling within bin 3. This behavior is no longer right-skewed as it was in the previous analysis. The "Transit" behavior is essentially unchanged, with nearly all observations falling within the last (5th) SL bin. Below is the previous set of histograms for comparison:
+
+```{r, fig.align='center', out.width='0.75\\linewidth', fig.pos='H', fig.cap="Boxplot showing proportions of behaviors assigned to each time segment from model when using 6 bins for sL."}
+
+include_graphics(path.expand("~/Documents/Snail Kite Project/Local Presentation/Model Behavior Histograms.png"))
+```
+
+
+It has now been established that there are differences in what an "Encamped" or "Exploratory" behavior describes compared to the previous model run. Next, I will evaluate how the proportion of behavior assignments change over time for three focal individuals:
+
+```{r}
+################################################
+#### Visualize Behavior Estimates Over Time ####
+################################################
+
+#Assign behaviors (via theta) to each time segment
+theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
+theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
+theta.estim$id<- as.character(theta.estim$id)
+names(theta.estim)<- c("id", "tseg", "Encamped", "Exploratory", "Transit")  #define behaviors
+nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,3:7], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
+
+#Create augmented matrix by replicating rows (tsegs) according to obs per tseg
+theta.estim2<- aug_behav_df(dat = dat, theta.estim = theta.estim, nobs = nobs)
+ind1<- which(names(theta.estim) != "id")
+theta.estim2<- theta.estim2 %>% mutate_at(names(theta.estim)[ind1], as.numeric)
+
+#Change into long format
+theta.estim.long<- theta.estim2 %>% gather(key, value, -id, -tseg, -time1, -date)
+theta.estim.long$date<- theta.estim.long$date %>% as_datetime()
+names(theta.estim.long)[5:6]<- c("behavior","prop")
+theta.estim.long$behavior<- factor(theta.estim.long$behavior, levels = c("Encamped", "Exploratory", "Transit"))
+
+```
+
+```{r, fig.align='center', out.width='1.0\\linewidth', fig.pos='H', fig.cap="In general, time segments appear to be shorter than before with larger changes in proportions of behavior. Peak breeding season is denoted by the grey panels."}
+
+breed<- data.frame(xmin = as_datetime(c("2018-03-01 00:00:00","2019-03-01 00:00:00")),
+                   xmax = as_datetime(c("2018-06-30 23:59:59","2019-06-30 23:59:59")),
+                   ymin = -Inf, ymax = Inf)
+
+#bar plot (includes gaps in time)
+ggplot(theta.estim.long %>% filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15")) +
+  geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            fill = "grey", alpha = 0.5) +
+  geom_bar(aes(x=date, y=prop, fill = behavior), size = 0.25, stat = "identity",
+           position = "stack", width = 3600) +
+  labs(x = "\nTime", y = "Proportion of Behavior\n") +
+  scale_fill_viridis_d("Behavior") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+```
+
+
+Compared to the results from the previous model run, these time series appear to show a greater number of rapid behavioral changes. Additionally, there appear to be differences in behavior proportions related to time within or outside of peak breeding season, where these three snail kites spend a greater proportion of time within a Exploratory or Transit behaviors during peak breeding season compared to time periods immediately before or afterwards.
+
+Lastly, I will show geographic patterns of behavioral estimates for the three focal individuals:
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+#load map data
+usa <- ne_states(country = "United States of America", returnclass = "sf")
+fl<- usa %>% filter(name == "Florida") %>% st_transform(fl, crs = "+init=epsg:32617")
+
+# lakes
+lakes10 <- ne_download(scale = 10, type = 'lakes', category = 'physical', returnclass = "sf")
+lakes10<- sf::st_transform(lakes10, crs = "+init=epsg:32617") %>%
+  sf::st_crop(xmin = min(dat$x-20000), xmax = max(dat$x+20000), ymin = min(dat$y-20000),
+              ymax = max(dat$y+20000))
+
+```
+
+```{r, fig.align='center', out.width='1.0\\linewidth', fig.pos='H', fig.cap="There appears to be greater behavioral variation than in the previous analysis, which seems to match these spatial patterns of movement better upon visualization."}
+
+#Add cluster assignments to original data; one column for dominant behavior and another for prop/prob to use for alpha of points
+dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
+dat2$behav<- factor(dat2$behav, levels = c("Encamped", "Exploratory", "Transit"))
+
+dat2.ind<- dat2 %>% filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15")
+
+ggplot() +
+  geom_sf(data = fl) +
+  geom_sf(data = lakes10, fill = "lightblue", alpha = 0.65) +
+  coord_sf(xlim = c(min(dat$x-120000), max(dat$x+40000)),
+           ylim = c(min(dat$y-20000), max(dat$y+20000)), expand = FALSE) +
+  geom_path(data = dat2.ind, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = dat2.ind, aes(x, y, fill=behav), size=2.5, pch=21, alpha=dat2.ind$prop) +
+  scale_fill_viridis_d("Behavior") +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  guides(fill = guide_legend(label.theme = element_text(size = 12),
+                             title.theme = element_text(size = 14))) +
+  facet_wrap(~id)
+```
+
+Below is an example of the previous map that was generated for SNIK 12 based on the previous results. You can see that the track appears to be dominated by the Exploratory behavior, which covers up much of the rest of the underlying points (with the exception of a single Transit segment).
+
+```{r, fig.align='center', out.width='1.0\\linewidth', fig.pos='H', fig.cap="Geographic map of behavior estimates for SNIK 12 from previous model run."}
+
+include_graphics(path.expand("~/Documents/Snail Kite Project/Local Presentation/SNIK 12 Behavior Map.png"))
+```
+
+
+# Conclusions
+
+It appears that the number of bins and the limits used to discretize step lengths for the snow leopard data has also improved the inference of the snail kite data. This appears to be due to Encamped and Exploratory behaviors having much greater differences in their distribution of step lengths, which may have also been impacted by the time segments generated by the segmentation model. Therefore, I think the use of 5 bins with limits set at different quantiles (and the maximum step length) may provide better results than the use of 6 bins with equal widths for 5 of them. Additionally, these settings may also serve as a useful default for the analysis of multiple types of organisms, in addition to the current bin number and limits used for turning angles.
