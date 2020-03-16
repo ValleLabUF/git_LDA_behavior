@@ -7,6 +7,7 @@ library(tidyverse)
 library(lubridate)
 library(viridis)
 library(ggnewscale)
+library(raster)
 
 
 source('LDA_behavior_function.R')
@@ -78,7 +79,7 @@ ggplot(behav.res, aes(x = bin, y = count, fill = as.factor(behav))) +
   theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
-  scale_fill_manual(values = viridis(n=3)[c(2,3,1)], guide = F) +
+  scale_fill_manual(values = viridis(n=3)[3:1], guide = F) +
   facet_grid(param ~ behav, scales = "free_y")
 
 
@@ -91,7 +92,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
   theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
-  scale_fill_manual(values = viridis(n=3)[c(2,3,1)], guide = F) +
+  scale_fill_manual(values = viridis(n=3)[3:1], guide = F) +
   facet_grid(param ~ behav, scales = "fixed")
 
 
@@ -101,10 +102,10 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
 ################################################
 
 #Assign behaviors (via theta) to each time segment
-theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
+theta.estim<- apply(theta.estim[,1:2], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
 theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
 theta.estim$id<- as.character(theta.estim$id)
-names(theta.estim)<- c("id", "tseg", "Exploratory", "Transit", "Encamped")  #define behaviors
+names(theta.estim)<- c("id", "tseg", "Exploratory", "Encamped")  #define behaviors
 nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,3:7], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
 
 #Create augmented matrix by replicating rows (tsegs) according to obs per tseg
@@ -117,7 +118,7 @@ theta.estim.long<- theta.estim2 %>% gather(key, value, -id, -tseg, -time1, -date
 theta.estim.long$date<- theta.estim.long$date %>% as_datetime()
 names(theta.estim.long)[5:6]<- c("behavior","prop")
 theta.estim.long$behavior<- factor(theta.estim.long$behavior,
-                                   levels = c("Encamped", "Exploratory", "Transit"))
+                                   levels = c("Encamped", "Exploratory"))
 
 
 
