@@ -227,3 +227,8 @@ ggplot() +
                              title.theme = element_text(size = 14))) +
   facet_wrap(~id)
 
+
+
+#Export DF
+
+# write.csv(dat2, "Snail Kite Gridded Data_TOHO_behavior.csv", row.names = F)
