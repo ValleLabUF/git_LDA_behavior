@@ -24,7 +24,7 @@ sourceCpp('aux1.cpp')
 ############################
 
 #get data
-dat<- read.csv('Snail Kite Gridded Data_TOHO_behav2.csv', header = T, sep = ',')
+dat<- read.csv('Armadillo Data_behav.csv', header = T, sep = ',')
 dat$date<- dat$date %>% as_datetime()
 dat.list<- df.to.list(dat, ind = "id")  #for later behavioral assignment
 
@@ -110,7 +110,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
 theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
 theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
 theta.estim$id<- as.character(theta.estim$id)
-names(theta.estim)<- c("id", "tseg", "Encamped", "Exploratory", "Transit")  #define behaviors
+names(theta.estim)<- c("id", "tseg", "Encamped", "Transit", "Exploratory")  #define behaviors
 nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,3:7], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
 
 #Create augmented matrix by replicating rows (tsegs) according to obs per tseg
@@ -146,23 +146,8 @@ ggplot(theta.estim.long) +
 
 ### Aligned by date
 
-#Window of peak breeding (March 1 - June 30)
-# breed<- data.frame(xmin = as_datetime(c("2016-03-01 00:00:00","2017-03-01 00:00:00",
-#                                         "2018-03-01 00:00:00","2019-03-01 00:00:00")),
-#                    xmax = as_datetime(c("2016-06-30 23:59:59","2017-06-30 23:59:59",
-#                                         "2018-06-30 23:59:59","2019-06-30 23:59:59")),
-#                    ymin = -Inf, ymax = Inf)
-
-breed<- data.frame(xmin = as_datetime(c("2018-03-01 00:00:00","2019-03-01 00:00:00")),
-                   xmax = as_datetime(c("2018-06-30 23:59:59","2019-06-30 23:59:59")),
-                   ymin = -Inf, ymax = Inf)
-
-
-
 #stacked area
 ggplot(theta.estim.long) +
-  geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
-            fill = "grey", alpha = 0.5) +
   geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
             position = "fill") +
   labs(x = "\nTime", y = "Proportion of Behavior\n") +
@@ -178,10 +163,8 @@ ggplot(theta.estim.long) +
 
 #bar plot (includes gaps in time)
 ggplot(theta.estim.long) +
-  geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
-            fill = "grey", alpha = 0.5) +
-  geom_bar(aes(x=date, y=prop, fill = behavior), size = 0.25, stat = "identity",
-           position = "stack", width = 3600) +
+  geom_bar(aes(x=time1, y=prop, fill = behavior), size = 0.25, stat = "identity",
+           position = "stack", width = 300) +
   labs(x = "\nTime", y = "Proportion of Behavior\n") +
   scale_fill_viridis_d("Behavior") +
   theme_bw() +
@@ -204,22 +187,9 @@ dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
 dat2$behav<- factor(dat2$behav, levels = c("Encamped", "Exploratory", "Transit"))
 
 
-#load map data
-usa <- ne_states(country = "United States of America", returnclass = "sf")
-fl<- usa %>% filter(name == "Florida") %>% st_transform(fl, crs = "+init=epsg:32617")
-
-# lakes
-lakes10 <- ne_download(scale = 10, type = 'lakes', category = 'physical', returnclass = "sf")
-lakes10<- sf::st_transform(lakes10, crs = "+init=epsg:32617") %>%
-  sf::st_crop(xmin = min(dat$x-20000), xmax = max(dat$x+20000), ymin = min(dat$y-20000),
-              ymax = max(dat$y+20000))
 
 # Facet plot of maps
 ggplot() +
-  geom_sf(data = fl) +
-  geom_sf(data = lakes10, fill = "lightblue", alpha = 0.65) +
-  coord_sf(xlim = c(min(dat$x-120000), max(dat$x+40000)),
-           ylim = c(min(dat$y-20000), max(dat$y+20000)), expand = FALSE) +
   geom_path(data = dat2, aes(x=x, y=y), color="gray60", size=0.25) +
   geom_point(data = dat2, aes(x, y, fill=behav), size=2.5, pch=21, alpha=dat2$prop) +
   scale_fill_viridis_d("Behavior") +
@@ -230,10 +200,10 @@ ggplot() +
         panel.grid = element_blank()) +
   guides(fill = guide_legend(label.theme = element_text(size = 12),
                              title.theme = element_text(size = 14))) +
-  facet_wrap(~id)
+  facet_wrap(~id, scales = "free")
 
 
 
 #Export DF
 
-# write.csv(dat2, "Snail Kite Gridded Data_TOHO_behavior.csv", row.names = F)
+# write.csv(dat2, "Armadillo Data_behavior.csv", row.names = F)

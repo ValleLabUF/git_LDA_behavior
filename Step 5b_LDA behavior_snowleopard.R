@@ -102,10 +102,10 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
 ################################################
 
 #Assign behaviors (via theta) to each time segment
-theta.estim<- apply(theta.estim[,1:2], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
+theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
 theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
 theta.estim$id<- as.character(theta.estim$id)
-names(theta.estim)<- c("id", "tseg", "Exploratory", "Encamped")  #define behaviors
+names(theta.estim)<- c("id", "tseg", "Exploratory", "Encamped", "Kill_Site")  #define behaviors
 nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,3:7], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
 
 #Create augmented matrix by replicating rows (tsegs) according to obs per tseg
@@ -118,7 +118,7 @@ theta.estim.long<- theta.estim2 %>% gather(key, value, -id, -tseg, -time1, -date
 theta.estim.long$date<- theta.estim.long$date %>% as_datetime()
 names(theta.estim.long)[5:6]<- c("behavior","prop")
 theta.estim.long$behavior<- factor(theta.estim.long$behavior,
-                                   levels = c("Encamped", "Exploratory"))
+                                   levels = c("Encamped", "Kill_Site", "Exploratory"))
 
 
 
@@ -180,7 +180,7 @@ ggplot(data = theta.estim.long) +
 
 #Add cluster assignments to original data; one column for dominant behavior and another for prop/prob to use for alpha of points
 dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
-dat2$behav<- factor(dat2$behav, levels = c("Encamped", "Exploratory", "Transit"))
+dat2$behav<- factor(dat2$behav, levels = c("Encamped", "Kill_Site", "Exploratory"))
 
 
 #load DEM
@@ -195,7 +195,8 @@ dem.df<- raster::aggregate(dem, fact = 8, fun = mean) %>%
 # Facet plot of maps
 ggplot() +
   geom_tile(data = dem.df, aes(x, y, fill = w001001)) +
-  scale_fill_gradientn(name = "Elevation (m)", colours = grey(1:100/100)) +
+  scale_fill_gradientn(name = "Elevation (m)", colours = grey(1:100/100),
+                       na.value = "transparent") +
   new_scale_fill() +
   geom_path(data = dat2, aes(x=x, y=y), color="gray60", size=0.25) +
   geom_point(data = dat2, aes(x, y, fill=behav), size=2.5, pch = 21, alpha=dat2$prop) +
@@ -207,3 +208,219 @@ ggplot() +
         panel.grid = element_blank()) +
   facet_wrap(~id)
 
+
+
+
+
+
+
+
+
+
+## Plot 'Kill Site' behavior only
+
+dat2.kill<- dat2 %>% filter(behav == "Kill_Site")
+
+setwd("~/Documents/Snail Kite Project/Data/snowleopards")
+
+
+### Read in kill site shapefile
+shp <- dir(getwd(), "*.shp$")
+kill_sf<- st_read(shp[2])
+
+
+ggplot() +
+  geom_tile(data = dem.df, aes(x, y, fill = w001001)) +
+  scale_fill_gradientn(name = "Elevation (m)", colours = grey(1:100/100),
+                       na.value = "transparent") +
+  new_scale_fill() +
+  geom_path(data = dat2.kill, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = dat2.kill, aes(x, y, fill=behav), size=2.5, pch = 21, alpha=dat2.kill$prop) +
+  geom_sf(data = kill_sf, color = "goldenrod", alpha = 0.7) +
+  scale_fill_manual("Behavior", values = viridis(n=3)[2]) +
+  labs(x = "Easting", y = "Northing") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+
+## There's some spatial overlap between "Kill Site" behavior and actual locations of kill sites in space for Khani and Pahlawan (and maybe Pari). Now need to verify with temporal component
+
+kill_sf$Date<- as.POSIXct(as.character(kill_sf$Date), format = "%d-%b-%y", tz = "UTC")
+
+
+ggplot(theta.estim.long) +
+  geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
+            position = "fill") +
+  labs(x = "\nTime", y = "Proportion of Behavior\n") +
+  scale_fill_viridis_d("Behavior") +
+  geom_vline(xintercept = kill_sf$Date, color = viridis(n=9)[7]) +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id, scales = "free_x")
+
+
+
+
+
+### Seems like Khani and Pahlawan overlap temporally with kill sites; time to bring it together for a few key examples
+
+
+# 2nd reported kill site
+kill_2<- dat2 %>%
+  filter(date >= (kill_sf$Date[2] - ddays(7)) & date <= (kill_sf$Date[2] + ddays(1))) %>%
+  filter(id == "Khani1")
+
+ggplot() +
+  geom_path(data = kill_2, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = kill_2, aes(x, y, fill=behav), size=2.5, pch = 21) +
+  geom_sf(data = kill_sf[2,], color = "red", alpha = 0.7) +
+  scale_fill_viridis_d("Behavior") +
+  labs(x = "Easting", y = "Northing") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+#dominant behavior is 'Encamped', but based on time series behavior plot, time segment is nearly evenly split between 'encamped' and 'kill site' behaviors
+
+
+
+# 3rd reported kill site
+kill_3<- dat2 %>%
+  filter(date >= (kill_sf$Date[3] - ddays(4)) & date <= kill_sf$Date[3]) %>%
+  filter(id == "Khani1")
+
+ggplot() +
+  geom_path(data = kill_3, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = kill_3, aes(x, y, fill=behav), size=2.5, pch = 21) +
+  geom_sf(data = kill_sf[3,], color = "red", alpha = 0.7) +
+  scale_fill_viridis_d("Behavior") +
+  labs(x = "Easting", y = "Northing") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+
+# dominant behavior is "Kill Site", which clearly fits with known time and location of carcass for Khani
+
+
+
+# 4th reported kill site
+kill_4<- dat2 %>%
+  filter(date >= (kill_sf$Date[4] - ddays(5)) & date <= kill_sf$Date[4]) %>%
+  filter(id == "Khani1" | id == "Pahlawan")
+
+ggplot() +
+  geom_path(data = kill_4, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = kill_4, aes(x, y, fill=behav), size=2.5, pch = 21) +
+  geom_sf(data = kill_sf[4,], color = "red", alpha = 0.7) +
+  scale_fill_viridis_d("Behavior") +
+  labs(x = "Easting", y = "Northing") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+# Khani, but not Pahlawan, associated with this carcass; "Encamped" is dominant behavior
+
+
+
+
+
+# 5th reported kill site
+kill_5<- dat2 %>%
+  filter(date >= (kill_sf$Date[5] - ddays(7)) & date <= (kill_sf$Date[5] + ddays(1))) %>%
+  filter(id == "Khani1")
+
+ggplot() +
+  geom_path(data = kill_5, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = kill_5, aes(x, y, fill=behav), size=2.5, pch = 21) +
+  geom_sf(data = kill_sf[5,], color = "red", alpha = 0.7) +
+  scale_fill_viridis_d("Behavior") +
+  labs(x = "Easting", y = "Northing") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+# Khani also associated with this kill site, but also showing "Encamped" as dominant behavior
+
+
+
+
+# 6th reported kill site
+kill_6<- dat2 %>%
+  filter(date >= (kill_sf$Date[6] - ddays(7)) & date <= kill_sf$Date[6]) %>%
+  filter(id == "Pahlawan")
+
+ggplot() +
+  geom_path(data = kill_6, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = kill_6, aes(x, y, fill=behav), size=2.5, pch = 21) +
+  geom_sf(data = kill_sf[6,], color = "red", alpha = 0.7) +
+  scale_fill_viridis_d("Behavior") +
+  labs(x = "Easting", y = "Northing") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+#Pahlawan associated with kill site, but "Encamped" is dominant behavior
+
+
+
+
+
+# 7th reported kill site
+kill_7<- dat2 %>%
+  filter(date >= (kill_sf$Date[7] - ddays(6)) & date <= kill_sf$Date[7])
+
+ggplot() +
+  geom_path(data = kill_7 %>% filter(id=="Khani1"), aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = kill_7 %>% filter(id=="Khani1"), aes(x, y, fill=behav), size=2.5, pch = 21) +
+  geom_sf(data = kill_sf[7,], color = "red", alpha = 0.7) +
+  scale_fill_viridis_d("Behavior") +
+  labs(x = "Easting", y = "Northing") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+
+# Kill associated with Khani, although dominant behavior is "Exploratory"; this appears to be result of very large time segment where most movements are "Exploratory"
+
+
+
+
+# 10th reported kill site
+kill_10<- dat2 %>%
+  filter(date >= (kill_sf$Date[10] - ddays(6)) & date <= kill_sf$Date[10])
+
+ggplot() +
+  geom_path(data = kill_10 %>% filter(id=="Pahlawan"), aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = kill_10 %>% filter(id=="Pahlawan"), aes(x, y, fill=behav), size=2.5, pch = 21) +
+  geom_sf(data = kill_sf[10,], color = "red", alpha = 0.7) +
+  scale_fill_viridis_d("Behavior") +
+  labs(x = "Easting", y = "Northing") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank()) +
+  facet_wrap(~id)
+
+#Pahlawan associated with kill site, but in "Encamped" behavior as dominant state
+
+
+### Overall, it appears that most kill sites are associated with "Encamped" as dominant behavior, but this may be due to long time series from the segmentation model and/or the "Kill Site" behavior as a minor subset of "Encamped" behavior that never really dominates a time segment, but obviously is still present during certain periods

@@ -1,11 +1,12 @@
-df.to.list=function(dat) {  #only for id as col in dat
-  id<- unique(dat$id)
+df.to.list=function(dat, ind) {  #ind must be in quotes
+  id<- unique(dat[,ind])
   n=length(id)
   dat.list<- vector("list", n)
   names(dat.list)<- id
   
   for (i in 1:length(id)) {
-    dat.list[[i]]<- dat[dat$id==id[i],]
+    tmp<- which(dat[,ind] == id[i])
+    dat.list[[i]]<- dat[tmp,]
   }
   dat.list
 }
@@ -13,7 +14,7 @@ df.to.list=function(dat) {  #only for id as col in dat
 get.summary.stats_behav=function(dat,nbins){  #dat must have time.seg assigned; for all IDs
   
   #create list of input and to store output
-  dat.list<- df.to.list(dat = dat)
+  dat.list<- df.to.list(dat = dat, ind = "id")
   id<- unique(dat$id) %>% as.character()
   n<- length(id)
   obs.list<- vector("list", n)
