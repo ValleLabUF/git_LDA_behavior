@@ -9,6 +9,7 @@ library(rnaturalearth)
 library(rnaturalearthdata)
 library(sf)
 library(viridis)
+library(wesanderson)
 
 
 source('LDA_behavior_function.R')
@@ -57,7 +58,25 @@ plot(res$loglikel, type='l')
 #Extract and plot proportions of behaviors per time segment
 theta.post<- res$theta[(nburn+1):ngibbs,]  #extract samples from posterior
 theta.estim<- theta.post %>% apply(2, mean) %>% matrix(nrow(obs), nmaxclust) #calc mean of posterior
-boxplot(theta.estim, xlab="Behavior", ylab="Proportion of Total Behavior")
+theta.estim_df<- theta.estim %>% 
+  as.data.frame() %>% 
+  pivot_longer(., cols = 1:7, names_to = "behavior", values_to = "prop") %>% 
+  modify_at("behavior", factor)
+levels(theta.estim_df$behavior)<- 1:7
+
+ggplot(theta.estim_df, aes(behavior, prop)) +
+  geom_boxplot(aes(fill = behavior), alpha = 0.5, outlier.shape = NA) +
+  geom_jitter(aes(color = behavior), position = position_jitter(0.1), 
+              alpha = 0.3) +
+  scale_color_viridis_d("", guide = F) +
+  scale_fill_viridis_d("", guide = F) +
+  labs(x="\nBehavior", y="Proportion of Total Behavior\n") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        axis.title = element_text(size = 16),
+        axis.text = element_text(size = 14))
+
+
 
 #Determine proportion of behaviors (across all time segments)
 #Possibly set threshold below which behaviors are excluded
@@ -71,6 +90,10 @@ round(apply(theta.estim, 2, sum)/nrow(theta.estim), digits = 3)
 
 behav.res<- get_behav_hist(res = res, dat_red = dat_red)
 behav.res<- behav.res[behav.res$behav <=3,]  #only select the top 3 behaviors
+behav.res$param<- factor(behav.res$param)
+levels(behav.res$param)<- c("Step Length", "Turning Angle")
+behav.res$behav<- factor(behav.res$behav)
+levels(behav.res$behav)<- c("Resting","ARS","Transit")
 
 #Plot histograms of frequency data; order color scale from slow to fast
 ggplot(behav.res, aes(x = bin, y = count, fill = as.factor(behav))) +
@@ -81,7 +104,7 @@ ggplot(behav.res, aes(x = bin, y = count, fill = as.factor(behav))) +
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
   scale_fill_manual(values = viridis(n=3), guide = F) +
-  facet_grid(behav ~ param, scales = "free_y")
+  facet_grid(behav ~ param, scales = "free_x")
 
 
 
@@ -94,12 +117,15 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
         axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14),
-        strip.text.x = element_text(face = "bold")) +
+        strip.text.x = element_text(face = "bold"),
+        panel.grid = element_blank()) +
   scale_fill_manual(values = viridis(n=3), guide = F) +
-  scale_y_continuous(breaks = c(0.00, 0.50, 1.00)) +
+  scale_y_continuous(breaks = c(0.00, 0.50, 1.00), limits = c(0,1.1)) +
   scale_x_continuous(breaks = 1:8) +
-  facet_grid(behav ~ param, scales = "fixed")
+  facet_grid(behav ~ param, scales = "free_x")
 
+# ggsave("Figure 6c (behavior histograms).png", width = 6, height = 4, units = "in",
+#        dpi = 330)
 
 
 ################################################
@@ -110,7 +136,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
 theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
 theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
 theta.estim$id<- as.character(theta.estim$id)
-names(theta.estim)<- c("id", "tseg", "Encamped", "Exploratory", "Transit")  #define behaviors
+names(theta.estim)<- c("id", "tseg", "Encamped", "ARS", "Transit")  #define behaviors
 nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,3:7], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
 
 #Create augmented matrix by replicating rows (tsegs) according to obs per tseg
@@ -123,7 +149,7 @@ theta.estim.long<- theta.estim2 %>% gather(key, value, -id, -tseg, -time1, -date
 theta.estim.long$date<- theta.estim.long$date %>% as_datetime()
 names(theta.estim.long)[5:6]<- c("behavior","prop")
 theta.estim.long$behavior<- factor(theta.estim.long$behavior,
-                                   levels = c("Encamped", "Exploratory", "Transit"))
+                                   levels = c("Encamped", "ARS", "Transit"))
 
 
 
@@ -160,19 +186,25 @@ breed<- data.frame(xmin = as_datetime(c("2018-03-01 00:00:00","2019-03-01 00:00:
 
 
 #stacked area
-ggplot(theta.estim.long) +
+ggplot(theta.estim.long %>% filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15")) +
   geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
             fill = "grey", alpha = 0.5) +
   geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
-            position = "fill") +
-  labs(x = "\nTime", y = "Proportion of Behavior\n") +
-  scale_fill_viridis_d("Behavior") +
+            position = "fill", alpha = 0.7) +
+  labs(x = "Time", y = "Proportion of Behavior") +
+  scale_y_continuous(breaks = c(0,0.5,1), expand = c(0.05,0.05)) +
+  scale_fill_viridis_d("") +
   theme_bw() +
-  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+  theme(axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12),
-        strip.text = element_text(size = 14, face = "bold"),
-        panel.grid = element_blank()) +
-  facet_wrap(~id)
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.grid = element_blank(),
+        legend.position = "n") +
+  facet_wrap(~id, nrow = 3)
+
+ggsave("Figure 7b (behavior prop time series).png", width = 7, height = 5, units = "in",
+       dpi = 330)
 
 
 
@@ -201,7 +233,7 @@ ggplot(theta.estim.long) +
 
 #Add cluster assignments to original data; one column for dominant behavior and another for prop/prob to use for alpha of points
 dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
-dat2$behav<- factor(dat2$behav, levels = c("Encamped", "Exploratory", "Transit"))
+dat2$behav<- factor(dat2$behav, levels = c("Encamped", "ARS", "Transit"))
 
 
 #load map data
@@ -215,22 +247,87 @@ lakes10<- sf::st_transform(lakes10, crs = "+init=epsg:32617") %>%
               ymax = max(dat$y+20000))
 
 # Facet plot of maps
+dat2_focal<- dat2 %>% filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15")
+
+
+## Load hydro data
+library(lwgeom)
+library(nhdplusTools)
+setwd("~/Documents/NHD Seamless Geodatabase/NHDPlusNationalData")
+
+download_dir<- download_nhdplushr(nhd_dir = getwd(), 
+                                  hu_list = c("0307","0308","0309","0310","0311","0312","0313",
+                                              "0314"), download_files = TRUE)
+waterbody<- read_sf(file.path(download_dir, "nhd_hr_FL.gpkg"), "NHDWaterbody") %>%
+  st_cast("MULTIPOLYGON")
+waterbody2<- waterbody %>%
+  filter(AreaSqKM > 50) %>%
+  st_simplify(preserveTopology = TRUE, dTolerance = 250)
+
+#mask flowline and waterbody to FL layer
+waterbody_fl<- st_intersection(st_make_valid(waterbody2), fl) %>% 
+  filter(GNIS_Name != "The Everglades")
+
+
 ggplot() +
-  geom_sf(data = fl) +
-  geom_sf(data = lakes10, fill = "lightblue", alpha = 0.65) +
-  coord_sf(xlim = c(min(dat$x-120000), max(dat$x+40000)),
-           ylim = c(min(dat$y-20000), max(dat$y+20000)), expand = FALSE) +
-  geom_path(data = dat2, aes(x=x, y=y), color="gray60", size=0.25) +
-  geom_point(data = dat2, aes(x, y, fill=behav), size=2.5, pch=21, alpha=dat2$prop) +
-  scale_fill_viridis_d("Behavior") +
+  geom_sf(data = fl, fill = "grey45", color = NA) +
+  geom_sf(data = waterbody_fl, fill = "white", color = NA) +
+  coord_sf(xlim = c(min(dat$x-60000), max(dat$x+60000)),
+           ylim = c(min(dat$y-20000), max(dat$y+10000)), expand = FALSE) +
+  geom_path(data = dat2_focal, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = dat2_focal, aes(x, y, fill=behav), size=2.5, pch=21, alpha=0.7) +
+  geom_point(data = dat2_focal %>%
+               group_by(id) %>%
+               slice(which(row_number() == 1)) %>%
+               ungroup(), aes(x, y), color = "green", pch = 21, size = 3,
+             stroke = 1.25) +
+  geom_point(data = dat2_focal %>%
+               group_by(id) %>%
+               slice(which(row_number() == n())) %>%
+               ungroup(), aes(x, y), color = "red", pch = 24, size = 3,
+             stroke = 1.25) +
+  scale_fill_viridis_d("") +
+  scale_x_continuous(breaks = c(-83:-80)) +
+  scale_y_continuous(breaks = c(26:29)) +
   labs(x = "Longitude", y = "Latitude") +
   theme_bw() +
   theme(axis.title = element_text(size = 16),
+        axis.text = element_text(size = 10),
         strip.text = element_text(size = 14, face = "bold"),
-        panel.grid = element_blank()) +
+        panel.grid = element_blank(),
+        legend.position = "top") +
   guides(fill = guide_legend(label.theme = element_text(size = 12),
                              title.theme = element_text(size = 14))) +
   facet_wrap(~id)
+
+ggsave("Figure 7a (maps pf focal IDs).png", width = 7, height = 5, units = "in",
+       dpi = 330)
+
+
+
+#Calculate activity budget (by obs proportions)
+activ.budg<- theta.estim.long %>% 
+  group_by(id, behavior) %>% 
+  summarise(mean=mean(prop), min=min(date, na.rm = T), max=max(date, na.rm = T),
+            duration=difftime(max,min, units = "days")) %>% 
+  ungroup() %>% 
+  dplyr::select(-c(min, max)) %>% 
+  modify_at("duration", as.numeric)
+
+
+ggplot(activ.budg) +
+  geom_path(aes(behavior, mean, group = id, color = duration)) +
+  geom_point(aes(behavior, mean)) +
+  scale_color_gradientn("Track Duration\n(Days)", colors = wes_palette("Zissou1", 100, type = "continuous")) +
+  labs(x=NULL, y="Mean Proportion of Behavior\n") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text = element_text(size = 14),
+        legend.position = "bottom") +
+  guides(color = guide_colourbar(barwidth = 15, barheight = 0.75))
+
+# ggsave("Figure 8 (activity budget line plot).png", width = 6, height = 4, units = "in",
+#        dpi = 330)
 
 
 
