@@ -76,6 +76,8 @@ ggplot(theta.estim_df, aes(behavior, prop)) +
         axis.title = element_text(size = 16),
         axis.text = element_text(size = 14))
 
+# ggsave("Figure 5b (behavior boxplot).png", width = 6, height = 4, units = "in",
+#        dpi = 330)
 
 
 #Determine proportion of behaviors (across all time segments)
@@ -93,7 +95,7 @@ behav.res<- behav.res[behav.res$behav <=3,]  #only select the top 3 behaviors
 behav.res$param<- factor(behav.res$param)
 levels(behav.res$param)<- c("Step Length", "Turning Angle")
 behav.res$behav<- factor(behav.res$behav)
-levels(behav.res$behav)<- c("Resting","ARS","Transit")
+levels(behav.res$behav)<- c("Encamped","ARS","Transit")
 
 #Plot histograms of frequency data; order color scale from slow to fast
 ggplot(behav.res, aes(x = bin, y = count, fill = as.factor(behav))) +
@@ -124,7 +126,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
   scale_x_continuous(breaks = 1:8) +
   facet_grid(behav ~ param, scales = "free_x")
 
-# ggsave("Figure 6c (behavior histograms).png", width = 6, height = 4, units = "in",
+# ggsave("Figure 5c (behavior histograms).png", width = 7, height = 5, units = "in",
 #        dpi = 330)
 
 
@@ -159,15 +161,20 @@ theta.estim.long$behavior<- factor(theta.estim.long$behavior,
 ggplot(theta.estim.long) +
   geom_area(aes(x=time1, y=prop, fill = behavior), color = "black", size = 0.25,
             position = "fill") +
-  labs(x = "\nObservation", y = "Proportion of Behavior\n") +
-  scale_fill_viridis_d("Behavior") +
+  labs(x = "\nTime", y = "Proportion of Behavior\n") +
+  scale_fill_viridis_d("") +
+  scale_x_continuous(guide = guide_axis(check.overlap = TRUE)) +
+  scale_y_continuous(breaks = c(0,0.5,1)) +
   theme_bw() +
   theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14, face = "bold"),
-        panel.grid = element_blank()) +
+        panel.grid = element_blank(),
+        legend.position = "top") +
   facet_wrap(~id, scales = "free_x")
 
+# ggsave("Figure S1 (behavior prop time series_all).png", width = 8, height = 6, units = "in",
+#        dpi = 330)
 
 
 ### Aligned by date
@@ -203,8 +210,8 @@ ggplot(theta.estim.long %>% filter(id == "SNIK 12" | id == "SNIK 14" | id == "SN
         legend.position = "n") +
   facet_wrap(~id, nrow = 3)
 
-ggsave("Figure 7b (behavior prop time series).png", width = 7, height = 5, units = "in",
-       dpi = 330)
+# ggsave("Figure 6b (behavior prop time series).png", width = 7, height = 5, units = "in",
+#        dpi = 330)
 
 
 
@@ -300,33 +307,46 @@ ggplot() +
                              title.theme = element_text(size = 14))) +
   facet_wrap(~id)
 
-ggsave("Figure 7a (maps pf focal IDs).png", width = 7, height = 5, units = "in",
-       dpi = 330)
+# ggsave("Figure 6a (maps pf focal IDs).png", width = 7, height = 5, units = "in",
+#        dpi = 330)
 
 
 
 #Calculate activity budget (by obs proportions)
+# activ.budg<- theta.estim.long %>% 
+#   group_by(id, behavior) %>% 
+#   summarise(mean=mean(prop), min=min(date, na.rm = T), max=max(date, na.rm = T),
+#             duration=difftime(max,min, units = "days")) %>% 
+#   ungroup() %>% 
+#   dplyr::select(-c(min, max)) %>% 
+#   modify_at("duration", as.numeric)
+
+#Separate by stages for longest tracks
 activ.budg<- theta.estim.long %>% 
-  group_by(id, behavior) %>% 
-  summarise(mean=mean(prop), min=min(date, na.rm = T), max=max(date, na.rm = T),
-            duration=difftime(max,min, units = "days")) %>% 
-  ungroup() %>% 
-  dplyr::select(-c(min, max)) %>% 
-  modify_at("duration", as.numeric)
+  filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15") %>% 
+  group_by(id, behavior) %>%
+  mutate(stage = case_when(date <= (date[1] + months(6)) ~ "Juvenile",
+                           date > (date[1] + months(6)) ~ "Adult")) %>% 
+  group_by(id, stage, behavior) %>% 
+  summarise(mean=mean(prop)) %>% 
+  modify_at("stage", ~factor(., levels = c("Juvenile","Adult"))) %>% 
+  ungroup()
 
 
 ggplot(activ.budg) +
-  geom_path(aes(behavior, mean, group = id, color = duration)) +
-  geom_point(aes(behavior, mean)) +
-  scale_color_gradientn("Track Duration\n(Days)", colors = wes_palette("Zissou1", 100, type = "continuous")) +
+  geom_path(aes(stage, mean, group = id, color = id)) +
+  geom_point(aes(stage, mean, color = id), size = 3, alpha = 0.7) +
+  facet_wrap(~ behavior) +
+  scale_color_manual("", values = wes_palette("Zissou1", n=5, type = "discrete")[c(1,3,5)]) +
   labs(x=NULL, y="Mean Proportion of Behavior\n") +
   theme_bw() +
   theme(axis.title = element_text(size = 16),
         axis.text = element_text(size = 14),
-        legend.position = "bottom") +
-  guides(color = guide_colourbar(barwidth = 15, barheight = 0.75))
+        legend.position = "bottom",
+        panel.grid = element_blank(),
+        strip.text = element_text(size = 12, face = "bold"))
 
-# ggsave("Figure 8 (activity budget line plot).png", width = 6, height = 4, units = "in",
+# ggsave("Figure 7 (activity budget line plot).png", width = 6, height = 4, units = "in",
 #        dpi = 330)
 
 
