@@ -109,27 +109,50 @@ aug_behav_df=function(dat, theta.estim, nobs) {  #augment from time segments to 
   theta.estim2
 }
 #------------------------------------------------
-assign_behav=function(dat.list, theta.estim2) {  #assign dominant behavior to observations
+# assign_behav=function(dat.list, theta.estim2) {  #assign dominant behavior to observations
+#   
+#   for (i in 1:length(dat.list)) {
+#     tmp<- matrix(NA, nrow(dat.list[[i]]), 2)
+#     sub<- theta.estim2[theta.estim2$id == unique(dat.list[[i]]$id),]
+#     
+#     for (j in 1:nrow(sub)) {
+#       k<- ncol(theta.estim2)-4  # number of behaviors
+#       ind<- which.max(sub[j,3:(3+k-1)])
+#       tmp[j,1]<- names(ind) %>% as.character()  #needs to be 'j+1' for simulations
+#       tmp[j,2]<- round(sub[j,(2+ind)], 3) %>% as.numeric() #needs to be 'j+1' for simulations
+#     }
+#     colnames(tmp)<- c("behav","prop")
+#     dat.list[[i]]<- cbind(dat.list[[i]], tmp)
+#     dat.list[[i]]$behav<- dat.list[[i]]$behav %>% as.character()
+#     dat.list[[i]]$prop<- dat.list[[i]]$prop %>% as.character()
+#   }
+#   
+#   #Convert to DF
+#   dat2<- do.call(rbind.data.frame, dat.list)
+#   dat2$prop<- dat2$prop %>% as.numeric() 
+#   
+#   dat2
+# }
+
+#------------------------------------------------
+assign_behav=function(dat.list, theta.estim.long, behav.names) {  #assign dominant behavior to observations
   
   for (i in 1:length(dat.list)) {
-    tmp<- matrix(NA, nrow(dat.list[[i]]), 2)
-    sub<- theta.estim2[theta.estim2$id == unique(dat.list[[i]]$id),]
+    sub<- theta.estim.long[theta.estim.long$id == unique(dat.list[[i]]$id),]
+    sub<- sub %>% 
+      arrange(tseg, date, behavior) %>% 
+      pivot_wider(names_from = behavior, values_from = prop) %>% 
+      mutate(behav = behav.names[apply(.[,5:ncol(.)], 1, which.max)])
     
-    for (j in 1:nrow(sub)) {
-      k<- ncol(theta.estim2)-4  # number of behaviors
-      ind<- which.max(sub[j,3:(3+k-1)])
-      tmp[j,1]<- names(ind) %>% as.character()  #needs to be 'j+1' for simulations
-      tmp[j,2]<- round(sub[j,(2+ind)], 3) %>% as.numeric() #needs to be 'j+1' for simulations
-    }
-    colnames(tmp)<- c("behav","prop")
-    dat.list[[i]]<- cbind(dat.list[[i]], tmp)
-    dat.list[[i]]$behav<- dat.list[[i]]$behav %>% as.character()
-    dat.list[[i]]$prop<- dat.list[[i]]$prop %>% as.character()
+    # colnames(sub)[5:(ncol(sub) - 1)]<- behav.names
+    # sub<- rbind(NA, sub)
+    
+    
+    dat.list[[i]]<- cbind(dat.list[[i]], sub[,5:ncol(sub)])
   }
   
   #Convert to DF
-  dat2<- do.call(rbind.data.frame, dat.list)
-  dat2$prop<- dat2$prop %>% as.numeric() 
+  dat2<- dplyr::bind_rows(dat.list)
   
   dat2
 }

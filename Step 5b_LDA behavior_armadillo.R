@@ -29,7 +29,7 @@ dat$date<- dat$date %>% as_datetime()
 dat$TA<- ifelse(!is.na(dat$TA), dat$TA, 9)  #need to assign bin to NAs
 dat.list<- df.to.list(dat, ind = "id")  #for later behavioral assignment
 
-nbins<- c(5,9)  #number of bins per param (in order)
+nbins<- c(6,9)  #number of bins per param (in order)
 dat_red<- dat %>% dplyr::select(c(id, tseg, SL, TA))  #only keep necessary cols
 obs<- get.summary.stats_behav(dat = dat_red, nbins = nbins)  #to run Gibbs sampler on
 

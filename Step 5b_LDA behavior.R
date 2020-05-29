@@ -239,7 +239,8 @@ ggplot(theta.estim.long) +
 
 
 #Add cluster assignments to original data; one column for dominant behavior and another for prop/prob to use for alpha of points
-dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
+dat2<- assign_behav(dat.list = dat.list, theta.estim.long = theta.estim.long,
+                    behav.names = c("Encamped","ARS","Transit"))
 dat2$behav<- factor(dat2$behav, levels = c("Encamped", "ARS", "Transit"))
 
 
@@ -347,6 +348,44 @@ ggplot(activ.budg) +
         strip.text = element_text(size = 12, face = "bold"))
 
 # ggsave("Figure 7 (activity budget line plot).png", width = 6, height = 4, units = "in",
+#        dpi = 330)
+
+
+
+
+
+#activity budget by month
+activ.budg2<- dat2_focal %>% 
+  pivot_longer(., cols = c(Encamped, ARS, Transit), names_to = "behavior",values_to = "prop") %>%
+  dplyr::select(id, date, behavior, prop) %>% 
+  mutate(yr_mo = paste(year(date), month(date, label = TRUE, abbr = F), 1, sep = "-")) %>% 
+  group_by(id, yr_mo, behavior) %>%
+  summarise(mean = mean(prop)) %>% 
+  ungroup() %>% 
+  mutate_at("yr_mo", ~as.POSIXct(., format = "%Y-%B-%d")) %>% 
+  arrange(id, yr_mo) %>% 
+  mutate_at("behavior", ~factor(., levels = c("Encamped", "ARS", "Transit")))
+
+
+ggplot(activ.budg2, aes(as.Date(yr_mo), mean, fill = behavior)) +
+  geom_bar(position="stack", stat="identity") +
+  scale_fill_viridis_d("") +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_x_date(date_labels = "%b %Y") +
+  # geom_smooth(aes(color=behavior), se=F, method="loess", show.legend = FALSE,
+  #             lwd=0.9) +
+  scale_color_viridis_d("") +
+  labs(x = "\nDate", y = "Proportion of Time\n") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        axis.title = element_text(size = 16),
+        axis.text = element_text(size = 12),
+        strip.text = element_text(size = 14, face = "bold"),
+        legend.position = "top",
+        plot.margin = margin(t=0.5, r=1, b=0.5, l=0.5, unit = "cm")) +
+  facet_wrap(~ id, scales = "free_x")
+
+# ggsave("Figure 7 (activity budget bar plot).png", width = 12, height = 8, units = "in",
 #        dpi = 330)
 
 
