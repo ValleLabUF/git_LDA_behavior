@@ -70,7 +70,7 @@ ggplot(theta.estim_df, aes(behavior, prop)) +
               alpha = 0.3) +
   scale_color_viridis_d("", guide = F) +
   scale_fill_viridis_d("", guide = F) +
-  labs(x="\nBehavior", y="Proportion of Total Behavior\n") +
+  labs(x="\nBehavior", y="Proportion of Time Segment\n") +
   theme_bw() +
   theme(panel.grid = element_blank(),
         axis.title = element_text(size = 16),
@@ -90,25 +90,12 @@ round(apply(theta.estim, 2, sum)/nrow(theta.estim), digits = 3)
 #### Visualize Histograms of Movement Parameters by Behavior ####
 #################################################################
 
-behav.res<- get_behav_hist(res = res, dat_red = dat_red)
+behav.res<- get_behav_hist(dat = res, nburn = nburn, ngibbs = ngibbs, nmaxclust = nmaxclust,
+                           var.names = c("Step Length","Turning Angle"))
 behav.res<- behav.res[behav.res$behav <=3,]  #only select the top 3 behaviors
 behav.res$param<- factor(behav.res$param)
-levels(behav.res$param)<- c("Step Length", "Turning Angle")
 behav.res$behav<- factor(behav.res$behav)
 levels(behav.res$behav)<- c("Encamped","ARS","Transit")
-
-#Plot histograms of frequency data; order color scale from slow to fast
-ggplot(behav.res, aes(x = bin, y = count, fill = as.factor(behav))) +
-  geom_bar(stat = 'identity') +
-  labs(x = "\nBin", y = "Frequency\n") +
-  theme_bw() +
-  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
-        axis.text.x.bottom = element_text(size = 12),
-        strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
-  scale_fill_manual(values = viridis(n=3), guide = F) +
-  facet_grid(behav ~ param, scales = "free_x")
-
-
 
 #Plot histograms of proportion data; order color scale from slow to fast
 ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
@@ -198,7 +185,7 @@ ggplot(theta.estim.long %>% filter(id == "SNIK 12" | id == "SNIK 14" | id == "SN
             fill = "grey", alpha = 0.5) +
   geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
             position = "fill", alpha = 0.7) +
-  labs(x = "Time", y = "Proportion of Behavior") +
+  labs(x = "Time", y = "Proportion of Time Segment") +
   scale_y_continuous(breaks = c(0,0.5,1), expand = c(0.05,0.05)) +
   scale_fill_viridis_d("") +
   theme_bw() +
@@ -378,12 +365,13 @@ ggplot(activ.budg2, aes(as.Date(yr_mo), mean, fill = behavior)) +
   labs(x = "\nDate", y = "Proportion of Time\n") +
   theme_bw() +
   theme(panel.grid = element_blank(),
-        axis.title = element_text(size = 16),
+        axis.title = element_text(size = 20),
         axis.text = element_text(size = 12),
-        strip.text = element_text(size = 14, face = "bold"),
+        strip.text = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 14),
         legend.position = "top",
         plot.margin = margin(t=0.5, r=1, b=0.5, l=0.5, unit = "cm")) +
-  facet_wrap(~ id, scales = "free_x")
+  facet_wrap(~ id, scales = "fixed")
 
 # ggsave("Figure 7 (activity budget bar plot).png", width = 12, height = 8, units = "in",
 #        dpi = 330)

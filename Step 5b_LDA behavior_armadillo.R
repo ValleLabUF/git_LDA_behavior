@@ -26,10 +26,10 @@ sourceCpp('aux1.cpp')
 #get data
 dat<- read.csv('Armadillo Data_behav.csv', header = T, sep = ',')
 dat$date<- dat$date %>% as_datetime()
-dat$TA<- ifelse(!is.na(dat$TA), dat$TA, 9)  #need to assign bin to NAs
+# dat$TA<- ifelse(!is.na(dat$TA), dat$TA, 9)  #need to assign bin to NAs
 dat.list<- df.to.list(dat, ind = "id")  #for later behavioral assignment
 
-nbins<- c(6,9)  #number of bins per param (in order)
+nbins<- c(5,8)  #number of bins per param (in order)
 dat_red<- dat %>% dplyr::select(c(id, tseg, SL, TA))  #only keep necessary cols
 obs<- get.summary.stats_behav(dat = dat_red, nbins = nbins)  #to run Gibbs sampler on
 
@@ -60,9 +60,9 @@ theta.post<- res$theta[(nburn+1):ngibbs,]  #extract samples from posterior
 theta.estim<- theta.post %>% apply(2, mean) %>% matrix(nrow(obs), nmaxclust) #calc mean of posterior
 theta.estim_df<- theta.estim %>% 
   as.data.frame() %>% 
-  pivot_longer(., cols = 1:8, names_to = "behavior", values_to = "prop") %>% 
+  pivot_longer(., cols = 1:7, names_to = "behavior", values_to = "prop") %>% 
   modify_at("behavior", factor)
-levels(theta.estim_df$behavior)<- 1:8
+levels(theta.estim_df$behavior)<- 1:7
 
 ggplot(theta.estim_df, aes(behavior, prop)) +
   geom_boxplot(aes(fill = behavior), alpha = 0.5, outlier.shape = NA) +
@@ -87,7 +87,8 @@ round(apply(theta.estim, 2, sum)/nrow(theta.estim), digits = 3)
 #### Visualize Histograms of Movement Parameters by Behavior ####
 #################################################################
 
-behav.res<- get_behav_hist(res = res, dat_red = dat_red)
+behav.res<- get_behav_hist(dat = res, nburn = nburn, ngibbs = ngibbs, nmaxclust = nmaxclust,
+                           var.names = c("Step Length","Turning Angle"))
 behav.res<- behav.res[behav.res$behav <=3,]  #only select the top 3 behaviors
 behav.res$param<- str_replace_all(behav.res$param, "SL", "Step Length") %>% 
   str_replace_all(., "TA", "Turning Angle")
@@ -96,19 +97,6 @@ behav.res$behav<- behav.res$behav %>%
   str_replace_all(., "1", "Foraging") %>% 
   str_replace_all(., "2", "Burrow") %>% 
   str_replace_all(., "3", "Transit")
-
-#Plot histograms of frequency data; order color scale from slow to fast
-ggplot(behav.res, aes(x = bin, y = count, fill = as.factor(behav))) +
-  geom_bar(stat = 'identity') +
-  labs(x = "\nBin", y = "Frequency\n") +
-  theme_bw() +
-  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
-        axis.text.x.bottom = element_text(size = 12),
-        strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
-  scale_fill_manual(values = viridis(n=3), guide = F) +
-  facet_grid(behav ~ param, scales = "free")
-
-
 
 #Plot histograms of proportion data; order color scale from slow to fast
 ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
@@ -120,7 +108,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14),
         strip.text.x = element_text(face = "bold")) +
-  scale_fill_manual(values = viridis(n=3), guide = F) +
+  scale_fill_viridis_d(guide = F) +
   scale_y_continuous(breaks = c(0.00, 0.50, 1.00)) +
   scale_x_continuous(breaks = 1:9) +
   facet_grid(behav ~ param, scales = "free_x")
@@ -135,7 +123,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
 theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
 theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
 theta.estim$id<- as.character(theta.estim$id)
-names(theta.estim)<- c("id", "tseg", "Foraging", "Burrow", "Transit")  #define behaviors
+names(theta.estim)<- c("id", "tseg", "Transit", "Burrow", "Foraging")  #define behaviors
 nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,3:7], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
 
 #Create augmented matrix by replicating rows (tsegs) according to obs per tseg
@@ -208,7 +196,7 @@ ggplot(theta.estim.long) +
 
 
 #Add cluster assignments to original data; one column for dominant behavior and another for prop/prob to use for alpha of points
-dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
+dat2<- assign_behav(dat.list = dat.list, theta.estim.long = theta.estim.long, behav.names = c("Burrow", "Foraging", "Transit"))
 dat2$behav<- factor(dat2$behav, levels = c("Burrow", "Foraging", "Transit"))
 
 

@@ -50,29 +50,22 @@ get.summary.stats_behav=function(dat,nbins){  #dat must have time.seg assigned; 
 }
 
 #------------------------------------------------
-get_behav_hist=function(res,dat_red) {  #generate DF of bin counts for histogram per behavior
+get_behav_hist=function(dat, nburn, ngibbs, nmaxclust, var.names) {  #generate DF of bin counts for histogram per behavior
   
   #summarize cluster results by frequency and proportion
   behav.list<- list()
-  for (j in 1:length(res$z.agg)) {
-    behav.list[[j]]<- matrix(0, dim(res$z.agg[[j]])[2]*dim(res$z.agg[[j]])[3], 4)
-    
-    oo = 1
-    for (i in 1:dim(res$z.agg[[j]])[3]) {
-      tmp<- apply(res$z.agg[[j]][,,i], 2, sum) %>% data.frame(count = ., prop = ./sum(.)) %>%
-        mutate(bin = 1:dim(res$z.agg[[j]])[2]) %>% mutate(behav = i) %>% as.matrix()
-      
-      behav.list[[j]][oo:(oo+dim(res$z.agg[[j]])[2] - 1),]<- tmp
-      oo = oo+dim(res$z.agg[[j]])[2]
-    }
-    
-    behav.list[[j]]<- data.frame(behav.list[[j]])
-    names(behav.list[[j]])<- c("count","prop","bin","behav")
-    behav.list[[j]]$param<- names(dat_red[j+2])
+  for (i in 1:length(dat$phi)) {
+    tmp<- matrix(dat$phi[[i]][(nburn+1):ngibbs,], length((nburn+1):ngibbs), ncol(dat$phi[[i]]))
+    tmp1<- matrix(colMeans(tmp), ncol(tmp) / nmaxclust, nmaxclust, byrow = T)
+    behav.list[[i]]<- data.frame(bin = 1:nrow(tmp1), tmp1) %>% 
+      rename_at(vars(starts_with('X')), ~as.character(1:ncol(tmp1))) %>% 
+      pivot_longer(-bin, names_to = "behav", values_to = "prop") %>% 
+      arrange(behav) %>% 
+      mutate(param = var.names[i])
   }
   
   #combine params
-  behav.res<- map_dfr(behav.list, `[`)
+  behav.res<- bind_rows(behav.list)
   
   behav.res
 }
@@ -144,8 +137,7 @@ assign_behav=function(dat.list, theta.estim.long, behav.names) {  #assign domina
       pivot_wider(names_from = behavior, values_from = prop) %>% 
       mutate(behav = behav.names[apply(.[,5:ncol(.)], 1, which.max)])
     
-    # colnames(sub)[5:(ncol(sub) - 1)]<- behav.names
-    # sub<- rbind(NA, sub)
+    # sub<- rbind(NA, sub)  #needed for simulated tracks
     
     
     dat.list[[i]]<- cbind(dat.list[[i]], sub[,5:ncol(sub)])
