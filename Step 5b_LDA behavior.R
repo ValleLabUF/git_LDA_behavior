@@ -65,11 +65,11 @@ theta.estim_df<- theta.estim %>%
 levels(theta.estim_df$behavior)<- 1:7
 
 ggplot(theta.estim_df, aes(behavior, prop)) +
-  geom_boxplot(aes(fill = behavior), alpha = 0.5, outlier.shape = NA) +
-  geom_jitter(aes(color = behavior), position = position_jitter(0.1), 
+  geom_boxplot(fill = "grey35", alpha = 0.5, outlier.shape = NA) +
+  geom_jitter(color = "grey35", position = position_jitter(0.1), 
               alpha = 0.3) +
-  scale_color_viridis_d("", guide = F) +
-  scale_fill_viridis_d("", guide = F) +
+  # scale_color_brewer("", palette = "Dark2", guide = F) +
+  # scale_fill_brewer("", palette = "Dark2", guide = F) +
   labs(x="\nBehavior", y="Proportion of Time Segment\n") +
   theme_bw() +
   theme(panel.grid = element_blank(),
@@ -220,6 +220,7 @@ ggplot(theta.estim.long) +
 
 
 
+
 ########################################
 #### Map Dominant Behavioral States ####
 ########################################
@@ -232,17 +233,20 @@ dat2$behav<- factor(dat2$behav, levels = c("Encamped", "ARS", "Transit"))
 
 
 #load map data
-usa <- ne_states(country = "United States of America", returnclass = "sf")
-fl<- usa %>% filter(name == "Florida") %>% st_transform(fl, crs = "+init=epsg:32617")
+usa<- ne_states(country = "United States of America", returnclass = "sf")
+fl<- usa %>% 
+  filter(name == "Florida") %>% 
+  st_transform(fl, crs = "+init=epsg:32617")
 
 # lakes
-lakes10 <- ne_download(scale = 10, type = 'lakes', category = 'physical', returnclass = "sf")
+lakes10<- ne_download(scale = 10, type = 'lakes', category = 'physical', returnclass = "sf")
 lakes10<- sf::st_transform(lakes10, crs = "+init=epsg:32617") %>%
   sf::st_crop(xmin = min(dat$x-20000), xmax = max(dat$x+20000), ymin = min(dat$y-20000),
               ymax = max(dat$y+20000))
 
 # Facet plot of maps
-dat2_focal<- dat2 %>% filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15")
+dat2_focal<- dat2 %>%
+  filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15")
 
 
 ## Load hydro data
@@ -297,6 +301,221 @@ ggplot() +
 
 # ggsave("Figure 6a (maps pf focal IDs).png", width = 7, height = 5, units = "in",
 #        dpi = 330)
+
+
+
+
+
+###############################################
+### Key in on Dispersal Events of Focal IDs ###
+###############################################
+
+## Natal Dispersal
+
+ggplot(theta.estim.long %>% 
+         filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15") %>% 
+         filter(date > "2018-06-25" & date < "2018-07-21")) +
+  # geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+  #           fill = "grey", alpha = 0.5) +
+  geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
+            position = "fill", alpha = 0.7) +
+  labs(x = "Time", y = "Proportion of Time Segment") +
+  scale_y_continuous(breaks = c(0,0.5,1), expand = c(0.05,0.05)) +
+  scale_fill_viridis_d("") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.grid = element_blank(),
+        legend.position = "n") +
+  facet_wrap(~id, nrow = 3)
+
+
+#import original dataset and round times
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/git_segmentation_behavior")
+
+dat.orig<- read.csv("Snail Kite Gridded Data_TOHO.csv", header = T, sep = ",")
+dat.orig$date<- as_datetime(dat.orig$date)
+
+#if dt within 5 min of 1 hr, round to 1 hr
+dat.orig<- round_track_time(dat = dat.orig, int = 3600, tol = 5/60*3600)
+
+#merge original and annotated datasets
+dat2_merge<- bayesmove::assign_behavior(dat.orig = dat.orig, dat.seg.list = dat.list,
+                                        theta.estim.long = theta.estim.long,
+                                        behav.names = c("Encamped","ARS","Transit"))
+
+dat2_focal<- dat2_merge %>%
+  filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15")
+
+dat2_natal<- dat2_focal %>% 
+  filter(date > "2018-06-25" & date < "2018-07-21")
+
+ggplot() +
+  geom_sf(data = fl, fill = "grey45", color = NA) +
+  geom_sf(data = waterbody_fl, fill = "white", color = NA) +
+  coord_sf(xlim = c(min(dat2_focal$x-60000), max(dat2_focal$x+60000)),
+           ylim = c(min(dat2_focal$y-20000), max(dat2_focal$y+10000)), expand = FALSE) +
+  geom_path(data = dat2_focal, aes(x=x, y=y), size = 0.5, alpha=0.7, color = "grey") +
+  geom_path(data = dat2_natal, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = dat2_natal, aes(x, y, fill=behav), size=2.5, pch=21, alpha=0.7) +
+  geom_point(data = dat2_natal %>%
+               group_by(id) %>%
+               slice(which(row_number() == 1)) %>%
+               ungroup(), aes(x, y), color = "green", pch = 21, size = 3,
+             stroke = 1.25) +
+  geom_point(data = dat2_natal %>%
+               group_by(id) %>%
+               slice(which(row_number() == n())) %>%
+               ungroup(), aes(x, y), color = "red", pch = 24, size = 3,
+             stroke = 1.25) +
+  scale_fill_viridis_d("") +
+  scale_x_continuous(breaks = c(-82:-80)) +
+  scale_y_continuous(breaks = c(26:29)) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank(),
+        legend.position = "top") +
+  guides(fill = guide_legend(label.theme = element_text(size = 12),
+                             title.theme = element_text(size = 14))) +
+  facet_wrap(~id, scales = "fixed")
+
+
+ggsave("Natal dispersal.png", width = 9, height = 5, units = "in", dpi = 330)
+
+
+
+
+
+
+## Pre-breeding dispersal
+
+ggplot(theta.estim.long %>% 
+         filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15") %>% 
+         filter(date > "2019-05-10" & date < "2019-06-09")) +
+  # geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+  #           fill = "grey", alpha = 0.5) +
+  geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
+            position = "fill", alpha = 0.7) +
+  labs(x = "Time", y = "Proportion of Time Segment") +
+  scale_y_continuous(breaks = c(0,0.5,1), expand = c(0.05,0.05)) +
+  scale_fill_viridis_d("") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.grid = element_blank(),
+        legend.position = "n") +
+  facet_wrap(~id, nrow = 3)
+
+
+dat2_preBreed<- dat2_focal %>% 
+  filter(date > "2019-05-10" & date < "2019-06-09")
+
+ggplot() +
+  geom_sf(data = fl, fill = "grey45", color = NA) +
+  geom_sf(data = waterbody_fl, fill = "white", color = NA) +
+  coord_sf(xlim = c(min(dat2_focal$x-60000), max(dat2_focal$x+60000)),
+           ylim = c(min(dat2_focal$y-20000), max(dat2_focal$y+10000)), expand = FALSE) +
+  geom_path(data = dat2_focal, aes(x=x, y=y), size = 0.5, alpha=0.7, color = "grey") +
+  geom_path(data = dat2_preBreed, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = dat2_preBreed, aes(x, y, fill=behav), size=2.5, pch=21, alpha=0.7) +
+  geom_point(data = dat2_preBreed %>%
+               group_by(id) %>%
+               slice(which(row_number() == 1)) %>%
+               ungroup(), aes(x, y), color = "green", pch = 21, size = 3,
+             stroke = 1.25) +
+  geom_point(data = dat2_preBreed %>%
+               group_by(id) %>%
+               slice(which(row_number() == n())) %>%
+               ungroup(), aes(x, y), color = "red", pch = 24, size = 3,
+             stroke = 1.25) +
+  scale_fill_viridis_d("") +
+  scale_x_continuous(breaks = c(-82:-80)) +
+  scale_y_continuous(breaks = c(26:29)) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank(),
+        legend.position = "top") +
+  guides(fill = guide_legend(label.theme = element_text(size = 12),
+                             title.theme = element_text(size = 14))) +
+  facet_wrap(~id, scales = "fixed")
+
+ggsave("Pre-breeding dispersal.png", width = 9, height = 5, units = "in", dpi = 330)
+
+
+
+
+
+## Post-breeding dispersal
+
+ggplot(theta.estim.long %>% 
+         filter(id == "SNIK 12" | id == "SNIK 14" | id == "SNIK 15") %>% 
+         filter(date > "2019-07-15" & date < "2019-08-05")) +
+  # geom_rect(data = breed, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+  #           fill = "grey", alpha = 0.5) +
+  geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
+            position = "fill", alpha = 0.7) +
+  labs(x = "Time", y = "Proportion of Time Segment") +
+  scale_y_continuous(breaks = c(0,0.5,1), expand = c(0.05,0.05)) +
+  scale_fill_viridis_d("") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 12, face = "bold"),
+        panel.grid = element_blank(),
+        legend.position = "n") +
+  facet_wrap(~id, nrow = 3)
+
+
+dat2_postBreed<- dat2_focal %>% 
+  filter(date > "2019-07-15" & date < "2019-08-05")
+
+ggplot() +
+  geom_sf(data = fl, fill = "grey45", color = NA) +
+  geom_sf(data = waterbody_fl, fill = "white", color = NA) +
+  coord_sf(xlim = c(min(dat2_focal$x-60000), max(dat2_focal$x+60000)),
+           ylim = c(min(dat2_focal$y-20000), max(dat2_focal$y+10000)), expand = FALSE) +
+  geom_path(data = dat2_focal, aes(x=x, y=y), size = 0.5, alpha=0.7, color = "grey") +
+  geom_path(data = dat2_postBreed, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = dat2_postBreed, aes(x, y, fill=behav), size=2.5, pch=21, alpha=0.7) +
+  geom_point(data = dat2_postBreed %>%
+               group_by(id) %>%
+               slice(which(row_number() == 1)) %>%
+               ungroup(), aes(x, y), color = "green", pch = 21, size = 3,
+             stroke = 1.25) +
+  geom_point(data = dat2_postBreed %>%
+               group_by(id) %>%
+               slice(which(row_number() == n())) %>%
+               ungroup(), aes(x, y), color = "red", pch = 24, size = 3,
+             stroke = 1.25) +
+  scale_fill_viridis_d("") +
+  scale_x_continuous(breaks = c(-82:-80)) +
+  scale_y_continuous(breaks = c(26:29)) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 14, face = "bold"),
+        panel.grid = element_blank(),
+        legend.position = "top") +
+  guides(fill = guide_legend(label.theme = element_text(size = 12),
+                             title.theme = element_text(size = 14))) +
+  facet_wrap(~id, scales = "fixed")
+
+ggsave("Post-breeding dispersal.png", width = 9, height = 5, units = "in", dpi = 330)
+
+
+
 
 
 
