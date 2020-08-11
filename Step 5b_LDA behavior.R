@@ -160,8 +160,8 @@ ggplot(theta.estim.long) +
         legend.position = "top") +
   facet_wrap(~id, scales = "free_x")
 
-# ggsave("Figure S1 (behavior prop time series_all).png", width = 8, height = 6, units = "in",
-#        dpi = 330)
+ggsave("Figure S2 (behavior prop time series_all).png", width = 10, height = 8, units = "in",
+       dpi = 330)
 
 
 ### Aligned by date
