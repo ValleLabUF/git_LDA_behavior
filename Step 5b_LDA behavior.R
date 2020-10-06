@@ -10,6 +10,7 @@ library(rnaturalearthdata)
 library(sf)
 library(viridis)
 library(wesanderson)
+library(gridExtra)
 
 
 source('LDA_behavior_function.R')
@@ -28,6 +29,12 @@ sourceCpp('aux1.cpp')
 dat<- read.csv('Snail Kite Gridded Data_TOHO_behav2.csv', header = T, sep = ',')
 dat$date<- dat$date %>% as_datetime()
 dat.list<- df.to.list(dat, ind = "id")  #for later behavioral assignment
+
+#define bin number and limits for step lengths and turning angles
+angle.bin.lims=seq(from=-pi, to=pi, by=pi/4)  #8 bins
+
+dist.bin.lims=quantile(dat[dat$dt == 3600,]$dist,
+                       c(0,0.25,0.50,0.75,0.90,1), na.rm=T) #5 bins
 
 nbins<- c(5,8)  #number of bins per param (in order)
 dat_red<- dat %>% dplyr::select(c(id, tseg, SL, TA))  #only keep necessary cols
@@ -98,22 +105,49 @@ behav.res$behav<- factor(behav.res$behav)
 levels(behav.res$behav)<- c("Encamped","ARS","Transit")
 
 #Plot histograms of proportion data; order color scale from slow to fast
-ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
+p.sl<- ggplot(behav.res %>% filter(param == "Step Length"),
+              aes(x = bin, y = prop, fill = as.factor(behav))) +
   geom_bar(stat = 'identity') +
   labs(x = "\nBin", y = "Proportion\n") +
   theme_bw() +
   theme(axis.title = element_text(size = 16),
         axis.text.y = element_text(size = 14),
-        axis.text.x.bottom = element_text(size = 12),
+        axis.text.x = element_text(size = 14),
+        strip.text = element_text(size = 14),
+        strip.text.x = element_text(face = "bold"),
+        strip.text.y = element_blank(),
+        panel.grid = element_blank(),
+        plot.margin = margin(5.5, 10, 5.5, 5.5)) +
+  scale_fill_manual(values = viridis(n=3), guide = F) +
+  scale_y_continuous(breaks = c(0.00, 0.50, 1.00), limits = c(0,1.1)) +
+  scale_x_continuous(breaks = 0.5:5.5, labels = round(dist.bin.lims/1000, 2)) +
+  facet_grid(behav ~ param, scales = "free_x")
+
+
+p.ta<- ggplot(behav.res %>% filter(param == "Turning Angle"),
+              aes(x = bin, y = prop, fill = as.factor(behav))) +
+  geom_bar(stat = 'identity') +
+  labs(x = "\nBin", y = "") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size = 14),
         strip.text = element_text(size = 14),
         strip.text.x = element_text(face = "bold"),
         panel.grid = element_blank()) +
   scale_fill_manual(values = viridis(n=3), guide = F) +
   scale_y_continuous(breaks = c(0.00, 0.50, 1.00), limits = c(0,1.1)) +
-  scale_x_continuous(breaks = 1:8) +
+  scale_x_continuous(breaks = seq(0.5, 8.5, by=2),
+                     labels = expression(-pi, -pi/2, 0, pi/2, pi)) +
   facet_grid(behav ~ param, scales = "free_x")
 
-# ggsave("Figure 5c (behavior histograms).png", width = 7, height = 5, units = "in",
+
+# png("Figure 6c (behavior histograms).png", width = 7, height = 5, units = "in", res = 330)
+grid.arrange(p.sl, p.ta, nrow = 1, widths = c(0.52, 0.48), heights = c(0.99, 1))
+# dev.off()
+
+# ggsave("Figure 6c (behavior histograms).png", width = 7, height = 5, units = "in",
 #        dpi = 330)
 
 
