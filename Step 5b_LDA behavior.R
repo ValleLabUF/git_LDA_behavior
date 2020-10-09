@@ -144,7 +144,7 @@ p.ta<- ggplot(behav.res %>% filter(param == "Turning Angle"),
 
 
 # png("Figure 6c (behavior histograms).png", width = 7, height = 5, units = "in", res = 330)
-grid.arrange(p.sl, p.ta, nrow = 1, widths = c(0.52, 0.48), heights = c(0.99, 1))
+grid.arrange(p.sl, p.ta, nrow = 1, widths = c(0.52, 0.48))
 # dev.off()
 
 # ggsave("Figure 6c (behavior histograms).png", width = 7, height = 5, units = "in",
