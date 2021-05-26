@@ -1,8 +1,6 @@
 set.seed(1)
 
-library('MCMCpack')
-library('Rcpp')
-library(progress)
+library(bayesmove)
 library(tidyverse)
 library(lubridate)
 library(rnaturalearth)
@@ -13,13 +11,6 @@ library(wesanderson)
 library(gridExtra)
 
 
-source('LDA_behavior_function.R')
-source('gibbs sampler.R')
-source('helper functions.R')
-sourceCpp('aux1.cpp')
-
-
-
 
 ############################
 #### Load and Prep Data ####
@@ -27,8 +18,8 @@ sourceCpp('aux1.cpp')
 
 #get data
 dat<- read.csv('Snail Kite Gridded Data_TOHO_behav2.csv', header = T, sep = ',')
-dat$date<- dat$date %>% as_datetime()
-dat.list<- df.to.list(dat, ind = "id")  #for later behavioral assignment
+dat$date<- as_datetime(dat$date)
+dat.list<- df_to_list(dat, ind = "id")  #for later behavioral assignment
 
 #define bin number and limits for step lengths and turning angles
 angle.bin.lims=seq(from=-pi, to=pi, by=pi/4)  #8 bins
@@ -37,8 +28,9 @@ dist.bin.lims=quantile(dat[dat$dt == 3600,]$dist,
                        c(0,0.25,0.50,0.75,0.90,1), na.rm=T) #5 bins
 
 nbins<- c(5,8)  #number of bins per param (in order)
-dat_red<- dat %>% dplyr::select(c(id, tseg, SL, TA))  #only keep necessary cols
-obs<- get.summary.stats_behav(dat = dat_red, nbins = nbins)  #to run Gibbs sampler on
+dat_red<- dat %>% 
+  dplyr::select(c(id, tseg, SL, TA))  #only keep necessary cols
+obs<- summarize_tsegs(dat = dat_red, nbins = nbins)  #to run Gibbs sampler on
 
 
 #prepare for Gibbs sampler
@@ -55,41 +47,45 @@ alpha=0.1
 #### Run Gibbs Sampler on All IDs Simultaneously ####
 #####################################################
 
-res=LDA_behavior_gibbs(dat=obs, gamma1=gamma1, alpha=alpha,
+res<- cluster_segments(dat=obs, gamma1=gamma1, alpha=alpha,
                        ngibbs=ngibbs, nmaxclust=nmaxclust,
                        nburn=nburn, ndata.types=ndata.types)
+# takes 27 s to run 1000 iter
 
-#Check traceplot of log marginal likelihood
+#Check traceplot of log likelihood
 plot(res$loglikel, type='l', ylab = "Log Likelihood", xlab = "Iteration")
+abline(v = nburn, col = "red", lwd = 1.5)
 
-#Extract and plot proportions of behaviors per time segment
-theta.post<- res$theta[(nburn+1):ngibbs,]  #extract samples from posterior
-theta.estim<- theta.post %>% apply(2, mean) %>% matrix(nrow(obs), nmaxclust) #calc mean of posterior
-theta.estim_df<- theta.estim %>% 
-  as.data.frame() %>% 
-  pivot_longer(., cols = 1:7, names_to = "behavior", values_to = "prop") %>% 
+# Extract proportions of behaviors per track segment
+theta.estim<- extract_prop(res = res, ngibbs = ngibbs, nburn = nburn, nmaxclust = nmaxclust)
+
+# Convert to data frame for ggplot2
+theta.estim_df<- theta.estim %>%
+  as.data.frame() %>%
+  pivot_longer(., cols = 1:nmaxclust, names_to = "behavior", values_to = "prop") %>%
   modify_at("behavior", factor)
-levels(theta.estim_df$behavior)<- 1:7
+levels(theta.estim_df$behavior)<- 1:nmaxclust
 
+# Plot results
 ggplot(theta.estim_df, aes(behavior, prop)) +
   geom_boxplot(fill = "grey35", alpha = 0.5, outlier.shape = NA) +
-  geom_jitter(color = "grey35", position = position_jitter(0.1), 
+  geom_jitter(color = "grey35", position = position_jitter(0.1),
               alpha = 0.3) +
-  # scale_color_brewer("", palette = "Dark2", guide = F) +
-  # scale_fill_brewer("", palette = "Dark2", guide = F) +
-  labs(x="\nBehavior", y="Proportion of Time Segment\n") +
+  labs(x="\nBehavior", y="Proportion per Time Segment\n") +
   theme_bw() +
   theme(panel.grid = element_blank(),
         axis.title = element_text(size = 16),
         axis.text = element_text(size = 14))
 
-# ggsave("Figure 5b (behavior boxplot).png", width = 6, height = 4, units = "in",
+# ggsave("Figure 6b (behavior boxplot).png", width = 6, height = 4, units = "in",
 #        dpi = 330)
 
 
-#Determine proportion of behaviors (across all time segments)
-#Possibly set threshold below which behaviors are excluded
-round(apply(theta.estim, 2, sum)/nrow(theta.estim), digits = 3)
+# Calculate mean proportions per behavior
+(theta.means<- round(colMeans(theta.estim), digits = 3))
+
+# Calculate cumulative sum
+cumsum(theta.means)
 
 
 
@@ -100,12 +96,12 @@ round(apply(theta.estim, 2, sum)/nrow(theta.estim), digits = 3)
 behav.res<- get_behav_hist(dat = res, nburn = nburn, ngibbs = ngibbs, nmaxclust = nmaxclust,
                            var.names = c("Step Length","Turning Angle"))
 behav.res<- behav.res[behav.res$behav <=3,]  #only select the top 3 behaviors
-behav.res$param<- factor(behav.res$param)
-behav.res$behav<- factor(behav.res$behav)
+behav.res$var<- factor(behav.res$var)
+behav.res$behav<- factor(behav.res$behav, levels = c(2:3,1))
 levels(behav.res$behav)<- c("Encamped","ARS","Transit")
 
 #Plot histograms of proportion data; order color scale from slow to fast
-p.sl<- ggplot(behav.res %>% filter(param == "Step Length"),
+p.sl<- ggplot(behav.res %>% filter(var == "Step Length"),
               aes(x = bin, y = prop, fill = as.factor(behav))) +
   geom_bar(stat = 'identity') +
   labs(x = "\nBin", y = "Proportion\n") +
@@ -119,12 +115,12 @@ p.sl<- ggplot(behav.res %>% filter(param == "Step Length"),
         panel.grid = element_blank(),
         plot.margin = margin(5.5, 10, 5.5, 5.5)) +
   scale_fill_manual(values = viridis(n=3), guide = F) +
-  scale_y_continuous(breaks = c(0.00, 0.50, 1.00), limits = c(0,1.1)) +
-  scale_x_continuous(breaks = 0.5:5.5, labels = round(dist.bin.lims/1000, 2)) +
-  facet_grid(behav ~ param, scales = "free_x")
+  scale_y_continuous(breaks = c(0.00, 0.25, 0.50, 0.75), limits = c(0,0.75)) +
+  scale_x_continuous(breaks = 0.5:5.5, labels = round(dist.bin.lims, 2)) +
+  facet_grid(behav ~ var, scales = "free_x")
 
 
-p.ta<- ggplot(behav.res %>% filter(param == "Turning Angle"),
+p.ta<- ggplot(behav.res %>% filter(var == "Turning Angle"),
               aes(x = bin, y = prop, fill = as.factor(behav))) +
   geom_bar(stat = 'identity') +
   labs(x = "\nBin", y = "") +
@@ -137,10 +133,10 @@ p.ta<- ggplot(behav.res %>% filter(param == "Turning Angle"),
         strip.text.x = element_text(face = "bold"),
         panel.grid = element_blank()) +
   scale_fill_manual(values = viridis(n=3), guide = F) +
-  scale_y_continuous(breaks = c(0.00, 0.50, 1.00), limits = c(0,1.1)) +
+  scale_y_continuous(breaks = c(0.00, 0.25, 0.50, 0.75), limits = c(0,0.75)) +
   scale_x_continuous(breaks = seq(0.5, 8.5, by=2),
                      labels = expression(-pi, -pi/2, 0, pi/2, pi)) +
-  facet_grid(behav ~ param, scales = "free_x")
+  facet_grid(behav ~ var, scales = "free_x")
 
 
 # png("Figure 6c (behavior histograms).png", width = 7, height = 5, units = "in", res = 330)
@@ -155,24 +151,10 @@ grid.arrange(p.sl, p.ta, nrow = 1, widths = c(0.52, 0.48))
 #### Visualize Behavior Estimates Over Time ####
 ################################################
 
-#Assign behaviors (via theta) to each time segment
-theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
-theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
-theta.estim$id<- as.character(theta.estim$id)
-names(theta.estim)<- c("id", "tseg", "Encamped", "ARS", "Transit")  #define behaviors
-nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,3:7], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
-
-#Create augmented matrix by replicating rows (tsegs) according to obs per tseg
-theta.estim2<- aug_behav_df(dat = dat, theta.estim = theta.estim, nobs = nobs)
-ind1<- which(names(theta.estim) != "id")
-theta.estim2<- theta.estim2 %>% mutate_at(names(theta.estim)[ind1], as.numeric)
-
-#Change into long format
-theta.estim.long<- theta.estim2 %>% gather(key, value, -id, -tseg, -time1, -date)
-theta.estim.long$date<- theta.estim.long$date %>% as_datetime()
-names(theta.estim.long)[5:6]<- c("behavior","prop")
-theta.estim.long$behavior<- factor(theta.estim.long$behavior,
-                                   levels = c("Encamped", "ARS", "Transit"))
+# Reformat proportion estimates for all track segments
+theta.estim.long<- expand_behavior(dat = dat, theta.estim = theta.estim, obs = obs,
+                                   nbehav = 3, behav.names = c("Transit", "Encamped", "ARS"),
+                                   behav.order = c(2:3,1))
 
 
 
@@ -194,8 +176,8 @@ ggplot(theta.estim.long) +
         legend.position = "top") +
   facet_wrap(~id, scales = "free_x")
 
-ggsave("Figure S2 (behavior prop time series_all).png", width = 10, height = 8, units = "in",
-       dpi = 330)
+# ggsave("Figure S2 (behavior prop time series_all).png", width = 10, height = 8, units = "in",
+#        dpi = 330)
 
 
 ### Aligned by date
@@ -220,11 +202,11 @@ ggplot(theta.estim.long %>% filter(id == "SNIK 12" | id == "SNIK 14" | id == "SN
   geom_area(aes(x=date, y=prop, fill = behavior), color = "black", size = 0.25,
             position = "fill", alpha = 0.7) +
   geom_rect(aes(xmin = as_datetime("2018-06-23"), xmax = as_datetime("2018-07-23"),
-                ymin = 0, ymax = 1), color = "red", fill = "n") +
+                ymin = 0, ymax = 1), color = "red", fill = "transparent") +
   geom_rect(aes(xmin = as_datetime("2019-05-08"), xmax = as_datetime("2019-06-11"),
-                ymin = 0, ymax = 1), color = "red", fill = "n") +
+                ymin = 0, ymax = 1), color = "red", fill = "transparent") +
   geom_rect(aes(xmin = as_datetime("2019-07-13"), xmax = as_datetime("2019-08-03"),
-                ymin = 0, ymax = 1), color = "red", fill = "n") +
+                ymin = 0, ymax = 1), color = "red", fill = "transparent") +
   labs(x = "Time", y = "Proportion of Time Segment") +
   scale_y_continuous(breaks = c(0,0.5,1), expand = c(0.05,0.05)) +
   scale_fill_viridis_d("") +
@@ -267,7 +249,8 @@ ggplot(theta.estim.long) +
 
 
 #Add cluster assignments to original data; one column for dominant behavior and another for prop/prob to use for alpha of points
-dat2<- assign_behav(dat.list = dat.list, theta.estim.long = theta.estim.long,
+dat2<- assign_behavior(dat.orig = dat[,-ncol(dat)], dat.seg.list = dat.list,
+                       theta.estim.long = theta.estim.long,
                     behav.names = c("Encamped","ARS","Transit"))
 dat2$behav<- factor(dat2$behav, levels = c("Encamped", "ARS", "Transit"))
 
@@ -339,7 +322,7 @@ ggplot() +
                              title.theme = element_text(size = 14))) +
   facet_wrap(~id)
 
-# ggsave("Figure 6a (maps pf focal IDs).png", width = 7, height = 5, units = "in",
+# ggsave("Figure 7a (maps pf focal IDs).png", width = 7, height = 5, units = "in",
 #        dpi = 330)
 
 
@@ -473,7 +456,7 @@ cowplot::ggdraw() +
   cowplot::draw_plot(natal_in, x = 0.67, y = 0.175, width = 0.35, height = 0.35)
 
 
-ggsave("Natal dispersal.png", width = 5, height = 9, units = "in", dpi = 330)
+# ggsave("Natal dispersal.png", width = 5, height = 9, units = "in", dpi = 330)
 
 
 
@@ -619,7 +602,7 @@ cowplot::ggdraw() +
   cowplot::draw_plot(preBreed_inW, x = 0.13, y = 0.123, width = 0.35, height = 0.35)
 
 
-ggsave("Pre-breeding dispersal.png", width = 5, height = 9, units = "in", dpi = 330)
+# ggsave("Pre-breeding dispersal.png", width = 5, height = 9, units = "in", dpi = 330)
 
 
 
@@ -760,7 +743,7 @@ cowplot::ggdraw() +
   # cowplot::draw_plot(postBreed_inW, x = 0.145, y = 0.12, width = 0.35, height = 0.35) +
   cowplot::draw_plot(postBreed_inE, x = 0.63, y = 0.10, width = 0.35, height = 0.35)
 
-ggsave("Post-breeding dispersal.png", width = 5, height = 9, units = "in", dpi = 330)
+# ggsave("Post-breeding dispersal.png", width = 5, height = 9, units = "in", dpi = 330)
 
 
 
@@ -859,4 +842,4 @@ ggplot() +
 
 #Export DF
 
-# write.csv(dat2, "Snail Kite Gridded Data_TOHO_behavior.csv", row.names = F)
+# write.csv(dat2_merge, "Snail Kite Gridded Data_TOHO_behavior.csv", row.names = F)
